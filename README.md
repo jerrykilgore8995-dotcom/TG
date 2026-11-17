@@ -20,7 +20,7 @@ The electrical reference is the **TG12345 Mk II microphone cassette**, including
 - The VST3 uses fitted complex AC sections and a bounded nonlinear stage at 4×, with a tracking correction filter at the session rate. It interpolates five physical fine-gain settings and normalizes the panel gain at 1 kHz. Line mode uses a 20 dB digital pad.
 - The SPICE and DSP reports are published by the build. The analog filter fit agrees with the *simulated* complex AC response within 0.05% over 20 Hz–20 kHz before digitization. At 44.1 kHz with centered Fine Gain, the hosted preview stayed within 0.27 dB and 1.86° of SPICE at nine frequencies from 20 Hz to 20 kHz after host delay compensation. In 200 tone comparisons of the reduced core at 176.4 kHz, 197 landed within 5% fundamental amplitude and 48 landed within 10% THD. The remaining THD and harmonic differences exceed the target. No TG2-500 or UMC1820 hardware comparison has been run.
 
-The additional modes are circuit-based previews. The 1290 interpolates three simulated gain positions per impedance selection. The 312 interpolates three gain positions per output tap and uses the documented 312 feedback circuit. Its sealed 2520 is represented by an estimated macro-model. The fixed-gain V72 uses a digital drive control, an estimated EF804S characteristic and one selected feedback trim. The three models use estimated transformer parasitics without measured core saturation or hysteresis. SPICE and bounded-DSP comparison data are available as build artifacts. Hardware tolerances remain unverified.
+The additional modes are circuit-based previews. The 1290 interpolates three simulated gain positions per impedance selection. The 312 interpolates three gain positions per output tap and uses the documented 312 feedback circuit. Its sealed 2520 is represented by an estimated macro-model. The fixed-gain V72 uses a digital drive control, an estimated EF804S characteristic, an 11.2:1 replacement-transformer reference and one selected feedback trim. The three models use estimated transformer parasitics without measured core saturation or hysteresis. SPICE and bounded-DSP comparison data are available as build artifacts. Hardware tolerances remain unverified.
 
 Sources
 
@@ -30,7 +30,7 @@ Sources
 - [TG2-500 independent bench review](https://www.soundonsound.com/reviews/chandler-limited-tg2-500) and [frequency/THD load comparison](https://umbrella-company.jp/contents/chandler-tg2-500-technical-note/)
 - [Neve 1073 service information](https://www.technicalaudio.com/neve/neve_pdf/1073-fullpak.pdf), [EZ1290 circuit and wiring](https://s3.amazonaws.com/EZ1290/assembly6.pdf) and [1073LB front panel](https://www.ams-neve.com/wp-content/uploads/2021/08/1073lbmicpreusermanualiss3.1.pdf)
 - [API vintage 312/2520 specifications](https://steampoweredradio.com/pdf/api/manuals/api%201972%20schematics.pdf), [VP312 schematic](https://www.capi-gear.com/catalog/images/gallery/VP312/VP312-VPR-Rev-A-schematic.pdf) and [312 front panel](https://apiaudio.com/docs/manuals/312_user_2020-06-22.pdf)
-- [Siemens V72 manual and S843 schematic](https://medias.audiofanzine.com/files/siemens-v-72-477671.pdf)
+- [Siemens V72 manual and S843 schematic](https://medias.audiofanzine.com/files/siemens-v-72-477671.pdf) and [CT V72/2 replacement transformer data](https://utmindustry.com/utm3575/)
 - [UMC1820 input and output specifications](https://www.bhphotovideo.com/lit_files/155647.pdf)
 
 ## Capture a UMC1820 input at 44.1 kHz

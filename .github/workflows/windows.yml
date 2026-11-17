@@ -12,6 +12,17 @@ permissions:
 
 jobs:
   reference:
+    strategy:
+      matrix:
+        include:
+          - model: type-d
+            script: characterize
+            header: TypeDModel.h
+            report: spice-report.json
+          - model: alternate
+            script: characterize_extra
+            header: ExtraModels.h
+            report: extra-spice-report.json
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,20 +31,35 @@ jobs:
           python-version: '3.12'
       - run: sudo apt-get update && sudo apt-get install -y ngspice
       - run: pip install -r calibration/requirements.txt
-      - run: OPENBLAS_NUM_THREADS=1 python spice/characterize.py --jobs 4 --header build/generated/TypeDModel.h --report build/spice-report.json
-      - run: OPENBLAS_NUM_THREADS=1 python spice/characterize_extra.py --jobs 4 --header build/generated/ExtraModels.h --report build/extra-spice-report.json
+      - run: python "spice/$SCRIPT.py" --jobs 4 --header "build/generated/$MODEL_HEADER" --report "build/$MODEL_REPORT"
+        env:
+          OPENBLAS_NUM_THREADS: 1
+          SCRIPT: ${{ matrix.script }}
+          MODEL_HEADER: ${{ matrix.header }}
+          MODEL_REPORT: ${{ matrix.report }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tg-reference-${{ matrix.model }}
+          path: |
+            build/generated/${{ matrix.header }}
+            build/${{ matrix.report }}
+  bench:
+    runs-on: ubuntu-latest
+    needs: reference
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tg-reference-*
+          merge-multiple: true
+          path: reference
       - run: |
-          g++ -O3 -std=c++20 -Iplugin -Ibuild/generated spice/bench_model.cpp -o build/bench-model
-          build/bench-model 176400 10 > build/bounded-dsp.csv
+          g++ -O3 -std=c++20 -Iplugin -Ireference/generated spice/bench_model.cpp -o /tmp/tg-bench-model
+          /tmp/tg-bench-model 176400 10 > reference/bounded-dsp.csv
       - uses: actions/upload-artifact@v4
         with:
           name: TG-Preamp-SPICE-and-DSP
-          path: |
-            build/generated/TypeDModel.h
-            build/generated/ExtraModels.h
-            build/extra-spice-report.json
-            build/spice-report.json
-            build/bounded-dsp.csv
+          path: reference
   windows:
     runs-on: windows-latest
     needs: reference
@@ -41,7 +67,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: TG-Preamp-SPICE-and-DSP
+          pattern: tg-reference-*
+          merge-multiple: true
           path: reference
       - run: cmake -S . -B build -A x64 "-DTG_MODEL_DIR=${{ github.workspace }}/reference/generated"
       - run: cmake --build build --config Release --target TG_VST3 --parallel 3

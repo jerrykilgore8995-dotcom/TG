@@ -1,6 +1,7 @@
 Siemens V72 two-EF804S audio circuit - drawing S843, after serial 1000
 * The 1u primary series cap is retained. Heater and mains are represented
-* by a quiet B+ feed. Transformer parasitics and EF804S curves are estimated.
+* by a quiet B+ feed. CT V72/2 uses published 11.2:1 replacement winding
+* data. The EF804S curves and unlisted winding parasitics are estimated.
 .param FREQ=1000 DRIVE=1m RGC=4000 TERM=1 SOURCE=200 LOAD=300
 Vsig source 0 AC 1 SIN(0 {DRIVE} {FREQ})
 Rsource source mic {SOURCE}
@@ -32,7 +33,7 @@ Rchoke feed choke 2.4k
 Lck choke a2 120
 Cchoke feed a2 95p
 C33 a2 outPri 2u
-XCT2 outPri 0 native 0 COIL n=.143 lp=160 rp=650 rs=35 k=.9999 cw=340p
+XCT2 outPri 0 native 0 COIL n={1/11.2} lp=100 rp=440 rs=6.3 k=.9999 cw=340p
 Rload native 0 {LOAD}
 Eout out 0 native 0 .8
 Vrect unregulated 0 300
@@ -45,7 +46,8 @@ C38 supplyB 0 8u
 
 * Pentode current law around published EF804S nominal operating points.
 .subckt EF804S a g s k
-Bdrive drive 0 V={.19*log(1+exp(min(55,(V(g,k)+V(s,k)/34.9-.35)/.19)))}
+BscreenVoltage screenV 0 V={max(V(s,k),1)}
+Bdrive drive 0 V={V(screenV)/222.06*log(1+exp(min(55,222.06*(1/34.90+V(g,k)/V(screenV)))))}
 Bplate a k I={.00152*pow(max(V(drive),1e-8),1.44)*(2/3.14159265)*atan(max(V(a,k),0)/22)*(1+max(V(a,k),0)/4200)}
 Bscreen s k I={.00021*pow(max(V(drive),1e-8),1.44)}
 Dgrid g k GRID
