@@ -1,0 +1,59 @@
+TG12345 Mk II Type D microphone cassette amplifier (BE232 reconstruction)
+* The xformer core and NPN parameters require hardware characterization.
+* Full secondary ratio and 200-ohm source are from EMI handbook sec. 3.2.
+* This fixture uses the highest transformer tap. AC input impedance is measured
+* at mic, and amplifier-only gain is v(out)/v(in).
+.param SOURCE=200 TERM=1e12 LOAD=3k TURNS=3.16 COARSE=1 RGC=1200 RAOT=3.9k
+.param LP=8 KP=.9995 RP=25 RS=90 CORELOSS=50k CW=120p
+.param DRIVE=10m FREQ=1000
+Vsig source 0 DC 0 AC 1 SIN(0 {DRIVE} {FREQ})
+Rsource source mic {SOURCE}
+Rterm mic 0 {TERM}
+X1 mic 0 sec 0 EMI_INPUT turns={TURNS} lp={LP} kp={KP} rp={RP} rs={RS} coreloss={CORELOSS} cw={CW}
+Cext2 sec damp 100p
+Rext1 damp 0 150k
+* 8.33k cassette attenuator at full secondary, handbook sec. 3.4.1.
+* Lower taps can be selected by setting TURNS=3.16*10**(-step/20).
+RcoarseTop sec in {max(1u,8330*(1-COARSE))}
+RcoarseBottom in 0 {max(1u,8330*COARSE)}
+Vplus plus 0 20
+Vminus minus 0 -20
+Xd in out gc plus minus 0 TYPE_D aot={RAOT}
+Rgain gc 0 {max(1u,RGC)}
+Rload out 0 {LOAD}
+
+.subckt TYPE_D in out gc plus minus ref params: aot=3.9k
+C1 in b1 470n
+R1 b1 ref 390k
+Q1 b2 b1 feedback SI_NPN
+R2 supply b2 75k
+R3 supply b3 43k
+R4 plus supply 62k
+C2 b2 ref 8.2n
+Q2 b3 b2 ref SI_NPN
+Q3 plus b3 out SI_NPN
+C4 supply ref 320u
+R5 out feedback 2.4k
+C5 out feedback 150p
+R6 feedback neg 360
+RAOT1 feedback neg {aot}
+C3 ref neg 320u
+R7 neg minus 11k
+C6 feedback gain 320u
+R8 gain gc 100
+.ends TYPE_D
+* Measurement-dependent silicon compact model for unidentified Q1-Q3.
+.model SI_NPN NPN(IS=1e-14 BF=330 VAF=85 IKF=45m ISE=4e-14 NE=1.5
++ BR=5 VAR=20 IKR=20m RB=90 RC=1 RE=.6 CJE=12p VJE=.7 MJE=.33
++ CJC=4p VJC=.55 MJC=.33 TF=.5n TR=80n)
+
+.subckt EMI_INPUT p+ p- s+ s- params: turns=3.16 lp=8 kp=.9995 rp=25 rs=90 coreloss=50k cw=120p
+Rp p+ p {rp}
+Lp p p- {lp}
+Rcore p p- {coreloss}
+Ls s s- {lp*turns*turns}
+K1 Lp Ls {kp}
+Rs s s+ {rs}
+Cw s+ s- {cw}
+.ends EMI_INPUT
+.end
