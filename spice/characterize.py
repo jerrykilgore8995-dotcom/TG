@@ -1,5 +1,6 @@
 """Generate the bounded Type D model and report the reference SPICE measurements."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import re
@@ -151,8 +152,49 @@ def nonlinear_fit(executable, netlist, folder, ac, r, shunt):
     curve[np.abs(v) < 1] = v[np.abs(v) < 1]
     return curve, quadratic
 
+
 def header_line(values):
     return "{" + ", ".join(f"{value:.9e}f" for value in values) + "}"
+
+
+def characterize_case(executable, netlist, r, shunt):
+    with TemporaryDirectory() as temporary:
+        folder = Path(temporary)
+        ac, bias, _, _ = simulate(executable, netlist, folder, r, shunt, 0.001,
+                                  transient=False)
+        error, sos = rational_fit(ac)
+        if error > 0.015:
+            raise RuntimeError(f"AC fit error too high for {r} ohms: {error:.2%}")
+        linear_gain = abs(response_at(1000, ac))
+        curve, quadratic = nonlinear_fit(executable, netlist, folder, ac, r, shunt)
+        sections = [header_line(row) for row in sos]
+        sections.extend(["{0, 0, 1, 0, 0, 1}"] * (4 - len(sos)))
+        curve_rows = [", ".join(f"{value:.9e}f" for value in curve[i:i + 8])
+                      for i in range(0, POINTS, 8)]
+        sos_text = ",\n        ".join(sections)
+        curve_text = ",\n        ".join(curve_rows)
+        entry = (f"    {{{{\n        {sos_text}\n    }}, {{\n        {curve_text}\n"
+                 f"    }}, {linear_gain:.9e}f, {header_line(quadratic)}}}")
+        bench = []
+        for frequency in (100, 1000, 5000, 10000):
+            for dbu in (-65, -50, -40, -30, -20):
+                drive = np.sqrt(2) * .775 * 10 ** (dbu / 20)
+                _, _, wave, duration = simulate(executable, netlist, folder, r, shunt, drive,
+                                                frequency)
+                bins = abs(np.fft.rfft(wave_cycle(wave, duration, frequency)) / 512)
+                floor = np.maximum(bins[2:21] / bins[1], 1e-15)
+                bench.append({"hz": frequency, "input_dbu": dbu,
+                              "fundamental_peak_volts": float(bins[1]),
+                              "thd_percent": float(np.linalg.norm(floor) * 100),
+                              "k2_k20_dbc": (20 * np.log10(floor)).tolist()})
+        z = -response_at(1000, ac, 5) / response_at(1000, ac, 7)
+        report = {"gain_control_ohms": r, "input_shunt_ohms": shunt,
+                       "input_impedance_1khz_ohms": [z.real, z.imag],
+                       "amplifier_gain_1khz_db": float(20*np.log10(linear_gain / abs(response_at(1000, ac, 3)))),
+                       "full_circuit_gain_1khz_db": float(20*np.log10(linear_gain)),
+                       "max_analog_complex_fit_error": error, "bias_volts": bias,
+                       "operating_points": bench}
+    return entry, report
 
 
 def main():
@@ -160,46 +202,16 @@ def main():
     parser.add_argument("--ngspice", default="ngspice")
     parser.add_argument("--header", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--jobs", type=int, choices=range(1, 9), default=1)
     args = parser.parse_args()
     netlist = (HERE / "type-d.cir").read_text()
-    entries, report = [], []
-    with TemporaryDirectory() as temporary:
-        folder = Path(temporary)
-        for shunt in SHUNT_RESISTORS:
-            for r in TRIM_RESISTORS:
-                ac, bias, _, _ = simulate(args.ngspice, netlist, folder, r, shunt, 0.001,
-                                          transient=False)
-                error, sos = rational_fit(ac)
-                if error > 0.015:
-                    raise RuntimeError(f"AC fit error too high for {r} ohms: {error:.2%}")
-                linear_gain = abs(response_at(1000, ac))
-                curve, quadratic = nonlinear_fit(args.ngspice, netlist, folder, ac, r, shunt)
-                sections = [header_line(row) for row in sos]
-                sections.extend(["{0, 0, 1, 0, 0, 1}"] * (4 - len(sos)))
-                entries.append("    {{\n        " + ",\n        ".join(sections) +
-                               "\n    }, {\n        " +
-                               ",\n        ".join(", ".join(f"{value:.9e}f" for value in curve[i:i+8])
-                                                   for i in range(0, POINTS, 8)) +
-                               f"\n    }}, {linear_gain:.9e}f, {header_line(quadratic)}}}")
-                bench = []
-                for frequency in (100, 1000, 5000, 10000):
-                    for dbu in (-65, -50, -40, -30, -20):
-                        drive = np.sqrt(2) * .775 * 10 ** (dbu / 20)
-                        _, _, wave, duration = simulate(args.ngspice, netlist, folder, r, shunt, drive,
-                                                        frequency)
-                        bins = abs(np.fft.rfft(wave_cycle(wave, duration, frequency)) / 512)
-                        floor = np.maximum(bins[2:21] / bins[1], 1e-15)
-                        bench.append({"hz": frequency, "input_dbu": dbu,
-                                      "fundamental_peak_volts": float(bins[1]),
-                                      "thd_percent": float(np.linalg.norm(floor) * 100),
-                                      "k2_k20_dbc": (20 * np.log10(floor)).tolist()})
-                z = -response_at(1000, ac, 5) / response_at(1000, ac, 7)
-                report.append({"gain_control_ohms": r, "input_shunt_ohms": shunt,
-                               "input_impedance_1khz_ohms": [z.real, z.imag],
-                               "amplifier_gain_1khz_db": float(20*np.log10(linear_gain / abs(response_at(1000, ac, 3)))),
-                               "full_circuit_gain_1khz_db": float(20*np.log10(linear_gain)),
-                               "max_analog_complex_fit_error": error, "bias_volts": bias,
-                               "operating_points": bench})
+    cases = [(r, shunt) for shunt in SHUNT_RESISTORS for r in TRIM_RESISTORS]
+
+    def run(case):
+        return characterize_case(args.ngspice, netlist, *case)
+
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        entries, report = zip(*pool.map(run, cases))
     args.header.parent.mkdir(parents=True, exist_ok=True)
     args.header.write_text("""// Generated by spice/characterize.py
 #pragma once

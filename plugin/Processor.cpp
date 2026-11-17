@@ -55,7 +55,7 @@ void TGProcessor::prepareToPlay(double sampleRate, int maximumBlockSize)
     sessionRate.store(sampleRate);
     oversampling = std::make_unique<juce::dsp::Oversampling<float>>(
         static_cast<size_t>(getTotalNumInputChannels()), oversamplingStages,
-        juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+        juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, false);
     sliceSize = std::max(1, maximumBlockSize);
     oversampling->initProcessing(static_cast<size_t>(sliceSize));
     oversampling->reset();
@@ -64,7 +64,14 @@ void TGProcessor::prepareToPlay(double sampleRate, int maximumBlockSize)
         stage.prepare(fastRate);
     for (auto& channel : correction)
         channel.reset();
-    const auto latency = tg::matchDelay + juce::roundToInt(oversampling->getLatencyInSamples());
+    const auto factor = static_cast<int>(oversampling->getOversamplingFactor());
+    const auto inherentDelay = juce::roundToInt(oversampling->getLatencyInSamples() * static_cast<float>(factor));
+    // Pad at the oversampled rate to avoid a phase-warping fractional delay
+    // at the host rate. Both half-band FIR stages then retain linear phase.
+    fastDelayLength = (factor - inherentDelay % factor) % factor;
+    fastDelayOffset = 0;
+    oversamplingPad = {};
+    const auto latency = tg::matchDelay + (inherentDelay + fastDelayLength) / factor;
     setLatencySamples(latency);
     dryHistory.setSize(getTotalNumInputChannels(), latency);
     dryHistory.clear();
@@ -146,8 +153,13 @@ void TGProcessor::processSlice(juce::dsp::AudioBlock<float> block)
         for (size_t channel = 0; channel < fast.getNumChannels(); ++channel)
         {
             auto* samples = fast.getChannelPointer(channel);
-            samples[sample] = stages[channel].process(samples[sample], fineMix, inputZ) * level;
+            auto value = stages[channel].process(samples[sample], fineMix, inputZ) * level;
+            if (fastDelayLength > 0)
+                std::swap(value, oversamplingPad[channel][static_cast<size_t>(fastDelayOffset)]);
+            samples[sample] = value;
         }
+        if (++fastDelayOffset >= fastDelayLength)
+            fastDelayOffset = 0;
     }
     oversampling->processSamplesDown(block);
 }

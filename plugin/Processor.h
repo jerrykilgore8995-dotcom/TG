@@ -62,6 +62,9 @@ private:
     std::array<tg::TypeD, 2> stages;
     std::array<tg::SourceCorrection, 2> correction;
     juce::AudioBuffer<float> dryHistory;
+    std::array<std::array<float, 4>, 2> oversamplingPad {};
+    int fastDelayLength = 0;
+    int fastDelayOffset = 0;
     int historyOffset = 0;
     int sliceSize = 0;
     juce::SmoothedValue<float> finePosition, outputGain, inputGain, sourceBlend, impedanceBlend;

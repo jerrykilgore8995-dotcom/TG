@@ -186,10 +186,16 @@ void TGEditor::FaceLook::drawRotarySlider(juce::Graphics& g, int x, int y, int w
     g.setColour(juce::Colours::black.withAlpha(.64f));
     g.fillPath(shadow);
     juce::Path body;
-    body.addEllipse(-radius, -radius, radius * 2, radius * 2);
-    body.addTriangle(0, -1.53f * radius, -.57f * radius, -.57f * radius,
-                     .57f * radius, -.57f * radius);
-    body.addRoundedRectangle(-.53f * radius, .06f * radius, 1.06f * radius, 1.6f * radius, 2);
+    body.startNewSubPath(0, -1.53f * radius);
+    body.lineTo(.48f * radius, -.86f * radius);
+    body.cubicTo(1.11f * radius, -.62f * radius, 1.24f * radius, .43f * radius,
+                 .53f * radius, .83f * radius);
+    body.lineTo(.53f * radius, 1.63f * radius);
+    body.lineTo(-.53f * radius, 1.63f * radius);
+    body.lineTo(-.53f * radius, .83f * radius);
+    body.cubicTo(-1.24f * radius, .43f * radius, -1.11f * radius, -.62f * radius,
+                 -.48f * radius, -.86f * radius);
+    body.closeSubPath();
     g.setGradientFill(juce::ColourGradient(knobColour.brighter(.53f), -radius, -radius,
                                           knobColour.darker(.9f), radius, radius, false));
     g.fillPath(body);
