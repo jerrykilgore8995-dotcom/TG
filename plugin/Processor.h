@@ -36,6 +36,7 @@ public:
     float testAttenuation() const { return testPad.load(); }
     void setTestAttenuation(float decibels);
     double activeSampleRate() const { return sessionRate.load(); }
+    float meterLevel() const { return levelMeter.load(); }
     juce::AudioProcessorValueTreeState tree;
 
 private:
@@ -54,6 +55,13 @@ private:
         std::atomic<float>* impedance;
         std::atomic<float>* phase;
         std::atomic<float>* match;
+        std::atomic<float>* amp;
+        std::atomic<float>* gain1290;
+        std::atomic<float>* low1290;
+        std::atomic<float>* gain312;
+        std::atomic<float>* pad312;
+        std::atomic<float>* tap312;
+        std::atomic<float>* driveV72;
     } parameters;
     mutable juce::SpinLock profileLock;
     tg::MatchProfile savedProfile;
@@ -64,6 +72,10 @@ private:
     std::atomic<float> testPad {50.0f};
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     std::array<tg::TypeD, 2> stages;
+    std::array<tg::FittedStage<3>, 2> neve, api;
+    std::array<tg::FittedStage<1, 1>, 2> v72;
+    std::atomic<float> levelMeter {0.0f};
+    int lastMode = 0;
     std::array<tg::SourceCorrection, 2> correction;
     juce::AudioBuffer<float> dryHistory;
     std::array<std::array<float, 4>, 2> oversamplingPad {};

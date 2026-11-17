@@ -70,7 +70,6 @@ TGEditor::TGEditor(TGProcessor& p)
     coarse.setDoubleClickReturnValue(true, 35);
     fine.setDoubleClickReturnValue(true, 0);
     output.setDoubleClickReturnValue(true, 10);
-    coarseLink = std::make_unique<SliderLink>(p.tree, "coarse", coarse);
     fineLink = std::make_unique<SliderLink>(p.tree, "fine", fine);
     outputLink = std::make_unique<SliderLink>(p.tree, "output", output);
 
@@ -85,15 +84,19 @@ TGEditor::TGEditor(TGProcessor& p)
     phantom.setName("48V");
     phantom.setTooltip("Phantom power is controlled on your audio interface.");
     phantom.setInterceptsMouseClicks(false, false);
-    for (auto* control : {&line, &impedance, &phase})
+    for (auto* control : {&line, &impedance, &phase, &pad312})
     {
         control->setClickingTogglesState(true);
         addAndMakeVisible(*control);
     }
     addAndMakeVisible(phantom);
     lineLink = std::make_unique<ButtonLink>(p.tree, "line", line);
-    impedanceLink = std::make_unique<ButtonLink>(p.tree, "impedance", impedance);
     phaseLink = std::make_unique<ButtonLink>(p.tree, "phase", phase);
+    padLink = std::make_unique<ButtonLink>(p.tree, "pad312", pad312);
+    modeSelect.setComponentID("select");
+    modeSelect.setTooltip("Select TG, 1290, 312 or V72");
+    modeSelect.onClick = [this] { showPreampMenu(); };
+    addAndMakeVisible(modeSelect);
     match.setComponentID("match");
     match.onImport = [this] { chooseMatch(); };
     match.onSettings = [this] { showMatchSettings(); };
@@ -106,7 +109,7 @@ TGEditor::TGEditor(TGProcessor& p)
     };
     addAndMakeVisible(match);
     timerCallback();
-    startTimerHz(8);
+    startTimerHz(25);
     setSize(204, 728);
 }
 
@@ -117,6 +120,11 @@ TGEditor::~TGEditor()
 
 void TGEditor::paint(juce::Graphics& g)
 {
+    if (mode > 0)
+    {
+        paintAlternate(g);
+        return;
+    }
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff3b3b3c), 0, 0,
                                           juce::Colour(0xff262627), 204, 728, false));
     g.fillAll();
@@ -162,6 +170,40 @@ void TGEditor::paint(juce::Graphics& g)
 
 void TGEditor::resized()
 {
+    modeSelect.setBounds(138, 698, 55, 23);
+    if (mode == 1)
+    {
+        coarse.setBounds(53, 89, 98, 117);
+        fine.setBounds(113, 328, 68, 72);
+        impedance.setBounds(45, 290, 42, 30);
+        phase.setBounds(45, 333, 42, 30);
+        line.setBounds(45, 376, 42, 30);
+        phantom.setBounds(45, 419, 42, 24);
+        output.setBounds(57, 488, 90, 93);
+        match.setBounds(63, 650, 78, 27);
+        return;
+    }
+    if (mode == 2)
+    {
+        coarse.setBounds(53, 294, 98, 100);
+        pad312.setBounds(62, 423, 34, 28);
+        phase.setBounds(62, 464, 34, 28);
+        impedance.setBounds(62, 505, 34, 28);
+        phantom.setBounds(62, 546, 34, 28);
+        line.setBounds(110, 595, 63, 23);
+        output.setBounds(33, 584, 52, 47);
+        match.setBounds(63, 650, 78, 27);
+        return;
+    }
+    if (mode == 3)
+    {
+        coarse.setBounds(53, 290, 98, 100);
+        output.setBounds(58, 448, 88, 94);
+        phase.setBounds(43, 584, 47, 31);
+        line.setBounds(114, 584, 47, 31);
+        match.setBounds(63, 650, 78, 28);
+        return;
+    }
     coarse.setBounds(38, 78, 128, 150);
     fine.setBounds(52, 290, 100, 108);
     output.setBounds(50, 453, 104, 110);
@@ -180,6 +222,23 @@ void TGEditor::FaceLook::drawRotarySlider(juce::Graphics& g, int x, int y, int w
                                       static_cast<float>(y) + static_cast<float>(h) * .48f);
     auto radius = static_cast<float>(w) * .315f;
     const auto angle = begin + (end - begin) * pos;
+    if (slider.getComponentID() == "round")
+    {
+        auto outline = juce::Rectangle<float>(2 * radius, 2 * radius).withCentre(centre);
+        g.setColour(juce::Colours::black.withAlpha(.72f));
+        g.fillEllipse(outline.expanded(3).translated(0, 2));
+        g.setGradientFill(juce::ColourGradient(knobColour.brighter(.65f), centre.x, centre.y - radius,
+                                              knobColour.darker(.65f), centre.x, centre.y + radius, false));
+        g.fillEllipse(outline);
+        g.setColour(knobColour.darker(.28f));
+        g.drawEllipse(outline.reduced(2), 2);
+        g.setColour(white);
+        g.drawLine(centre.x + std::sin(angle) * radius * .55f,
+                   centre.y - std::cos(angle) * radius * .55f,
+                   centre.x + std::sin(angle) * radius * .91f,
+                   centre.y - std::cos(angle) * radius * .91f, 2);
+        return;
+    }
     juce::Graphics::ScopedSaveState state(g);
     g.addTransform(juce::AffineTransform::rotation(angle).translated(centre.x, centre.y));
     juce::Path shadow;
@@ -248,7 +307,7 @@ void TGEditor::FaceLook::drawButtonBackground(juce::Graphics& g, juce::Button& b
 
 void TGEditor::FaceLook::drawButtonText(juce::Graphics& g, juce::TextButton& button, bool, bool)
 {
-    if (button.getComponentID() == "match")
+    if (button.getComponentID() == "match" || button.getComponentID() == "select")
         label(g, button.getButtonText(), static_cast<float>(button.getWidth()) * .5f, 0,
               static_cast<float>(button.getWidth()), static_cast<float>(button.getHeight()),
               14, button.getToggleState() ? juce::Colours::black : yellow);
@@ -271,6 +330,11 @@ void TGEditor::MatchButton::mouseDown(const juce::MouseEvent& event)
 
 void TGEditor::timerCallback()
 {
+    const auto selected = juce::roundToInt(owner.tree.getRawParameterValue("amp")->load());
+    if (selected != mode)
+        refreshPanel(selected);
+    if (mode > 0)
+        repaint();
     const auto valid = owner.matchAtSessionRate();
     const auto isMic = owner.tree.getRawParameterValue("line")->load() < 0.5f;
     const auto enabled = owner.tree.getRawParameterValue("match")->load() > 0.5f;
@@ -389,4 +453,161 @@ void TGEditor::exportTestWav(int rate, float attenuation)
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
                                                       "Test export", "The test WAV could not be saved.");
         });
+}
+
+void TGEditor::showPreampMenu()
+{
+    juce::PopupMenu menu;
+    const juce::String names[] {"TG Type D", "1290", "312", "V72"};
+    for (int index = 0; index < 4; ++index)
+        menu.addItem(index + 1, names[index], true, mode == index);
+    auto safe = juce::Component::SafePointer<TGEditor>(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&modeSelect), [safe](int selection)
+    {
+        if (safe == nullptr || selection <= 0)
+            return;
+        auto* parameter = safe->owner.tree.getParameter("amp");
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost(static_cast<float>(selection - 1) / 3.0f);
+        parameter->endChangeGesture();
+        safe->refreshPanel(selection - 1);
+    });
+}
+
+void TGEditor::refreshPanel(int selection)
+{
+    mode = selection;
+    constexpr const char* gainIds[] {"coarse", "gain1290", "gain312", "driveV72"};
+    constexpr const char* modeNames[] {"TG", "1290", "312", "V72"};
+    constexpr float gainDefaults[] {35.0f, 35.0f, 34.0f, 0.0f};
+    const auto arc = mode == 0 ? pi * .5f : pi * .78f;
+    coarseLink.reset();
+    coarse.setRotaryParameters(2 * pi - arc, 2 * pi + arc, true);
+    coarse.setDoubleClickReturnValue(true, gainDefaults[mode]);
+    coarse.setComponentID(mode == 0 ? "pointer" : "round");
+    coarse.setName(mode == 3 ? "Drive" : "Gain");
+    coarse.setTooltip(mode == 3 ? "Drive into the fixed-gain V72 circuit."
+                                 : "Adjust microphone gain and circuit drive.");
+    coarse.setColour(juce::Slider::rotarySliderFillColourId,
+                     juce::Colour(mode == 2 ? 0xff1689d6 : mode == 3 ? 0xff303236 : 0xffba222a));
+    coarseLink = std::make_unique<SliderLink>(owner.tree, gainIds[mode], coarse);
+    fine.setVisible(mode < 2);
+    fine.setComponentID(mode == 0 ? "pointer" : "round");
+    output.setComponentID(mode == 0 ? "pointer" : "round");
+    impedanceLink.reset();
+    impedance.setVisible(mode != 3);
+    if (mode != 3)
+    {
+        constexpr const char* switchIds[] {"impedance", "low1290", "tap312"};
+        impedanceLink = std::make_unique<ButtonLink>(owner.tree, switchIds[mode], impedance);
+    }
+    impedance.setComponentID(mode == 0 ? "impedance" : "utility");
+    impedance.setTooltip(mode == 2 ? "Switch between the 3:1 and 1:1 output transformer taps."
+                                   : "Select the simulated low-impedance input.");
+    line.setComponentID(mode == 0 ? "line" : "utility");
+    phantom.setVisible(mode != 3);
+    pad312.setVisible(mode == 2);
+    pad312.setTooltip("20 dB microphone input pad");
+    modeSelect.setButtonText(modeNames[mode]);
+    resized();
+    repaint();
+}
+
+void TGEditor::paintAlternate(juce::Graphics& g)
+{
+    const auto steel = juce::Colour(0xff929899);
+    const auto panel = juce::Colour(mode == 1 ? 0xff242936 : mode == 2 ? 0xff151515 : 0xff555a5b);
+    g.setGradientFill(juce::ColourGradient(panel.brighter(.10f), 0, 0, panel.darker(.45f), 204, 728, false));
+    g.fillAll();
+    g.setColour(panel.brighter(.35f));
+    g.drawRect(getLocalBounds().toFloat().reduced(.5f), 1.0f);
+    screw(g, 102, 20, 10);
+    screw(g, 102, 709, 10);
+    const auto level = owner.meterLevel();
+    if (mode == 1)
+    {
+        const auto ink = juce::Colour(0xffe6ae54);
+        g.setColour(level > .65f ? juce::Colours::red : level > .002f ? juce::Colours::limegreen
+                                                                     : juce::Colour(0xff343836));
+        g.fillEllipse(23, 58, 9, 9);
+        label(g, "SIG", 27, 71, 29, 15, 9, ink);
+        dial(g, 102, 145, pi * .78f, 13, 61, ink, [](int i)
+        {
+            return i % 2 == 0 ? juce::String(20 + i * 5) : juce::String();
+        });
+        label(g, "INPUT GAIN", 102, 233, 112, 16, 12, ink);
+        label(g, "LO Z", 24, 297, 42, 16, 11, ink);
+        label(g, "Ø", 24, 341, 42, 16, 12, ink);
+        label(g, "LINE", 24, 383, 42, 16, 11, ink);
+        label(g, "48V", 23, 425, 41, 16, 11, ink);
+        label(g, "TRIM", 146, 304, 80, 16, 11, ink);
+        label(g, "OUTPUT", 102, 582, 90, 16, 12, ink);
+        return;
+    }
+    if (mode == 2)
+    {
+        auto blue = juce::Colour(0xff38a4e4);
+        auto bezel = juce::Rectangle<float>(29, 58, 146, 193);
+        g.setColour(juce::Colour(0xff555656));
+        g.fillRoundedRectangle(bezel, 7);
+        g.setColour(juce::Colour(0xff090909));
+        g.fillEllipse(33, 73, 138, 151);
+        auto meter = juce::Rectangle<float>(39, 79, 126, 138);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xfffff0b0), 102, 93,
+                                              juce::Colour(0xffa9935d), 102, 230, false));
+        g.fillEllipse(meter);
+        const auto origin = juce::Point<float>(102, 202);
+        for (int i = 0; i < 14; ++i)
+        {
+            const auto angle = -.84f + static_cast<float>(i) / 13.0f * 1.68f;
+            g.setColour(i > 9 ? juce::Colour(0xffbf2721) : juce::Colour(0xff332b18));
+            g.drawLine(origin.x + std::sin(angle) * 67, origin.y - std::cos(angle) * 67,
+                       origin.x + std::sin(angle) * 73, origin.y - std::cos(angle) * 73, 1);
+        }
+        label(g, "−20      −7     0   +3", 103, 116, 134, 15, 9, juce::Colour(0xff322418));
+        label(g, "VU", 102, 156, 60, 18, 10, juce::Colour(0xff322418));
+        const auto db = juce::Decibels::gainToDecibels(level) + 18.0f;
+        const auto fraction = std::clamp((db + 20.0f) / 23.0f, 0.0f, 1.0f);
+        const auto angle = -.86f + 1.72f * fraction;
+        g.setColour(juce::Colour(0xff272019));
+        g.drawLine(origin.x, origin.y, origin.x + std::sin(angle) * 68,
+                   origin.y - std::cos(angle) * 68, 1.3f);
+        for (float x : {37.0f, 167.0f})
+        {
+            screw(g, x, 65, 5);
+            screw(g, x, 244, 5);
+            screw(g, x, 670, 8);
+        }
+        g.setColour(level > .65f ? juce::Colours::red : juce::Colour(0xff442828));
+        g.fillEllipse(51, 266, 8, 8);
+        label(g, "PEAK", 31, 263, 34, 13, 9, white);
+        dial(g, 102, 342, pi * .78f, 9, 47, blue, [](int) { return juce::String(); });
+        label(g, "GAIN", 159, 335, 45, 16, 11, white);
+        label(g, "PAD −20", 139, 430, 62, 16, 11, white);
+        label(g, "POL", 133, 471, 56, 16, 11, white);
+        label(g, "3:1", 133, 512, 56, 16, 11, white);
+        label(g, "48V", 133, 553, 56, 16, 11, white);
+        label(g, "LINE", 142, 573, 68, 18, 10, blue);
+        label(g, "OUT", 60, 627, 62, 16, 10, blue);
+        return;
+    }
+    g.setColour(juce::Colour(0xff171d21));
+    for (int i = 0; i < 5; ++i)
+        g.fillRoundedRectangle(58, 82.0f + static_cast<float>(i) * 14, 88, 6, 3);
+    label(g, "V72", 102, 168, 136, 31, 27, white);
+    g.setColour(juce::Colour(0xff292b2b));
+    g.fillEllipse(91, 216, 22, 22);
+    g.setColour(juce::Colour(0xffe78437).withAlpha(level > .002f ? 1.0f : .55f));
+    g.fillEllipse(95, 220, 14, 14);
+    dial(g, 102, 338, pi * .78f, 7, 52, steel.brighter(.5f), [](int i)
+    {
+        if (i == 0) return juce::String("−15");
+        if (i == 3) return juce::String("0");
+        if (i == 6) return juce::String("+15");
+        return juce::String();
+    });
+    label(g, "DRIVE", 102, 406, 98, 19, 14, white);
+    label(g, "OUTPUT", 102, 548, 98, 19, 14, white);
+    label(g, "Ø", 64, 563, 64, 18, 11, white);
+    label(g, "LINE", 137, 563, 64, 18, 11, white);
 }

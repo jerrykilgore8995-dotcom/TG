@@ -3,8 +3,8 @@ project(TG VERSION 0.1.0 LANGUAGES C CXX)
 
 set(TG_JUCE_PATH "" CACHE PATH "Optional local JUCE 8.0.6 checkout")
 set(TG_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated" CACHE PATH "Directory containing generated TypeDModel.h")
-if(NOT EXISTS "${TG_MODEL_DIR}/TypeDModel.h")
-    message(FATAL_ERROR "Generate TypeDModel.h with spice/characterize.py and set TG_MODEL_DIR.")
+if(NOT EXISTS "${TG_MODEL_DIR}/TypeDModel.h" OR NOT EXISTS "${TG_MODEL_DIR}/ExtraModels.h")
+    message(FATAL_ERROR "Generate both SPICE model headers using the commands in README.md and set TG_MODEL_DIR.")
 endif()
 
 if(TG_JUCE_PATH)

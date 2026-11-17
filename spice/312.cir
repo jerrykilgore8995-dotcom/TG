@@ -1,0 +1,50 @@
+312 microphone amplifier - 2622, bounded 2520 macro-model and 2503
+* Signal path follows API 312/2520 documentation, with the VP312 feedback
+* capacitor and input termination network. The sealed 2520 is represented by
+* published gain-bandwidth, slew and headroom, with an estimated push-pull output.
+.param FREQ=1000 DRIVE=1m RGC=1800 TERM=3 SOURCE=150 LOAD=600
+Vsig source 0 AC 1 SIN(0 {DRIVE} {FREQ})
+Rsource source mic {SOURCE}
+Cemi mic 0 500p
+X2622 mic 0 in 0 COIL n=7 lp=7 rp=12 rs=125 k=.99996 cw=70p
+R2 in 0 150k
+C1 in damping 220p
+R3 damping 0 10k
+Vplus railP 0 16
+Vminus railN 0 -16
+X2520 in nf amp railP railN DOA
+R4 amp nf 20k
+C2 amp nf 120p
+R11 nf low 200
+C8 low rg 330u
+Rg rg 0 {RGC}
+R12 amp primary 1
+X2503 primary 0 native 0 COIL n={TERM} lp=2.5 rp=5 rs={4*TERM} k=.999993 cw=110p
+Rload native 0 {LOAD}
+Eout out 0 native 0 .35
+
+.subckt DOA ip im out plus minus
+Bgm 0 comp I={.003*tanh(V(ip,im)/.009)}
+Rdom comp 0 948.7k
+Cdom comp 0 1.06n
+Blimit drive 0 V={max(V(minus)+2,min(V(plus)-2,V(comp)))}
+Bupper b7 0 V={V(drive)+.661}
+Blower b8 0 V={V(drive)-.665}
+Q7 plus b7 e7 NPOWER
+Q8 minus b8 e8 PPOWER
+R11 e7 out 2.2
+R12 e8 out 2.2
+.ends DOA
+
+.model NPOWER NPN(IS=22e-14 BF=65 VAF=70 IKF=.6 RE=.15 RC=.4 RB=6 CJE=40p CJC=33p TF=3n)
+.model PPOWER PNP(IS=32e-14 BF=60 VAF=55 IKF=.5 RE=.15 RC=.4 RB=7 CJE=60p CJC=35p TF=6n)
+
+.subckt COIL ip im op om params: n=2 lp=10 rp=20 rs=100 k=.9999 cw=100p
+Rprimary ip p {rp}
+Lprimary p im {lp}
+Lsecondary s om {lp*n*n}
+Kwind Lprimary Lsecondary {k}
+Rsecondary s op {rs}
+Cwind op om {cw}
+.ends COIL
+.end

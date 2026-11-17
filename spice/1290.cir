@@ -1,0 +1,97 @@
+1290 microphone amplifier - BA283 AV and BA283 NV component models
+* References: Neve drawing EX/10 283; EZ1290 wiring sheet; Carnhill data.
+* RGC selects the AV feedback setting. TERM: /NV bypass, ratio 2:1;
+* low-impedance input connection uses two primaries in parallel.
+.param RGC=120 TERM=1
+.param FREQ=1000 DRIVE=1m SOURCE=150 LOAD=600 EXTRA=0
+.param NIN={2*TERM} LPIN={18/(TERM*TERM)} RPIN={48/(TERM*TERM)}
+Vsig source 0 AC 1 SIN(0 {DRIVE} {FREQ})
+Rsource source mic {SOURCE}
+X10468 mic 0 tin 0 COIL n={NIN} lp={LPIN} rp={RPIN} rs=260 k=.99985 cw=140p
+C1 tin 0 180p
+V24 rail 0 24
+R51 rail quiet 270
+C4 quiet 0 470u
+R56 rail power 12
+C7 power 0 2200u
+C8 power 0 2200u
+XNV tin nvout nvS nvT quiet GAIN
+RdegNV nvT 0 91
+RfbNV nvS tin 15k
+* Separate early gain section is inserted only on the higher sensitivity steps.
+Bstage in 0 V={(1-EXTRA)*V(tin)+EXTRA*.35*V(nvout)}
+XAV in avout avS avT quiet GAIN
+RfbAV avS in 18k
+RdegAV avT 0 {RGC}
+R99 avout 0 5k
+Xout avout power collector POWERAMP
+XLO1166 power collector secondary 0 COIL n=1.7 lp=1.5 rp=18 rs=92 k=.99994 cw=150p
+R64 secondary snub 1.5k
+C9 snub 0 10n
+Rload secondary 0 {LOAD}
+* Scale voltage for bounded DSP fitting; external level remains measured here.
+Eout out 0 secondary 0 .4
+
+.subckt GAIN u p s t n
+C8 u b4 10u
+R9 u 0 120k
+R10 b4 e5bottom 68k
+C9 b4 b5 100p
+C10 b4 e4 1500p
+Q4 b5 b4 e4 BC184C
+R11 n rail4 33k
+R12 rail4 b5 47k
+C12 rail4 0 22u
+C11 b5 0 680p
+Q5 b6 b5 e5 BC184C
+R13 n b6 5.1k
+R14 e5 e5bottom 470
+R15 e5bottom 0 1.5k
+C13 e5bottom 0 125u
+C14 e5 s 22u
+R16 s 0 10k
+Q6 n b6 e6 BC184C
+R17 e6 e4 2.2k
+R18 e4 0 390
+C17 e4 t 400u
+R19 t 0 1.8k
+C16 e6 0 1000p
+C15 e6 p 22u
+R20 p 0 51k
+.ends GAIN
+
+.subckt POWERAMP l m b
+C1 l highpass 10u
+R1 highpass b1 2.2k
+R2 b1 bias 56k
+C2 b1 b2 220p
+C3 b1 e1 4700p
+R3 m b2 68k
+Q1 b2 b1 e1 BC184C
+R4 e1 0 1.2k
+R5 e1 localfb 3.3k
+C5 e1 localfb 330p
+C4 localfb b 80u
+Q2 b b2 b3 BC184C
+R6 b3 0 18k
+Q3 b b3 e3 N3055
+R7 e3 0 47
+* RV1 external bias adjustment. Trimmed to the nominal collector operating point.
+RbiasTop e3 bias 2.7k
+RbiasBottom bias 0 2k
+C6 m e3 80u
+C7 b unusedF 80u
+R8 unusedF 0 33k
+.ends POWERAMP
+
+.model BC184C NPN (IS=6e-15 BF=500 VAF=80 IKF=.08 ISE=5e-15 NE=1.5 BR=5 RB=80 RC=1 RE=.5 CJE=12p CJC=4p TF=.45n TR=50n)
+.model N3055 NPN (IS=30e-12 BF=65 VAF=60 IKF=1.5 BR=4 RB=1 RC=.12 RE=.08 CJE=450p CJC=300p TF=1.2u TR=7u)
+.subckt COIL ip im op om params: n=2 lp=10 rp=20 rs=100 k=.9999 cw=100p
+Rprimary ip p {rp}
+Lprimary p im {lp}
+Lsecondary s om {lp*n*n}
+Kwind Lprimary Lsecondary {k}
+Rsecondary s op {rs}
+Cwind op om {cw}
+.ends COIL
+.end

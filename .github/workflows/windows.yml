@@ -21,14 +21,17 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ngspice
       - run: pip install -r calibration/requirements.txt
       - run: OPENBLAS_NUM_THREADS=1 python spice/characterize.py --jobs 4 --header build/generated/TypeDModel.h --report build/spice-report.json
+      - run: OPENBLAS_NUM_THREADS=1 python spice/characterize_extra.py --jobs 4 --header build/generated/ExtraModels.h --report build/extra-spice-report.json
       - run: |
           g++ -O3 -std=c++20 -Iplugin -Ibuild/generated spice/bench_model.cpp -o build/bench-model
           build/bench-model 176400 10 > build/bounded-dsp.csv
       - uses: actions/upload-artifact@v4
         with:
-          name: TG-Type-D-SPICE-and-DSP
+          name: TG-Preamp-SPICE-and-DSP
           path: |
             build/generated/TypeDModel.h
+            build/generated/ExtraModels.h
+            build/extra-spice-report.json
             build/spice-report.json
             build/bounded-dsp.csv
   windows:
@@ -38,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: TG-Type-D-SPICE-and-DSP
+          name: TG-Preamp-SPICE-and-DSP
           path: reference
       - run: cmake -S . -B build -A x64 "-DTG_MODEL_DIR=${{ github.workspace }}/reference/generated"
       - run: cmake --build build --config Release --target TG_VST3 --parallel 3
@@ -52,5 +55,5 @@ jobs:
           Copy-Item 'README.md' $artifact
       - uses: actions/upload-artifact@v4
         with:
-          name: TG-Type-D-Preview-Windows-x64-VST3
+          name: TG-Preamps-Preview-Windows-x64-VST3
           path: dist

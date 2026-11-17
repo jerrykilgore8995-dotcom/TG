@@ -157,12 +157,14 @@ def header_line(values):
     return "{" + ", ".join(f"{value:.9e}f" for value in values) + "}"
 
 
-def characterize_case(executable, netlist, r, shunt):
+def characterize_case(executable, netlist, r, shunt, *, band=None, scale=1.0,
+                      levels=(-65, -50, -40, -30, -20)):
     with TemporaryDirectory() as temporary:
         folder = Path(temporary)
         ac, bias, _, _ = simulate(executable, netlist, folder, r, shunt, 0.001,
                                   transient=False)
-        error, sos = rational_fit(ac)
+        fit_data = ac if band is None else ac[(ac[:, 0] >= band[0]) & (ac[:, 0] <= band[1])]
+        error, sos = rational_fit(fit_data)
         if error > 0.015:
             raise RuntimeError(f"AC fit error too high for {r} ohms: {error:.2%}")
         linear_gain = abs(response_at(1000, ac))
@@ -177,21 +179,21 @@ def characterize_case(executable, netlist, r, shunt):
                  f"    }}, {linear_gain:.9e}f, {header_line(quadratic)}}}")
         bench = []
         for frequency in (100, 1000, 5000, 10000):
-            for dbu in (-65, -50, -40, -30, -20):
+            for dbu in levels:
                 drive = np.sqrt(2) * .775 * 10 ** (dbu / 20)
                 _, _, wave, duration = simulate(executable, netlist, folder, r, shunt, drive,
                                                 frequency)
                 bins = abs(np.fft.rfft(wave_cycle(wave, duration, frequency)) / 512)
                 floor = np.maximum(bins[2:21] / bins[1], 1e-15)
                 bench.append({"hz": frequency, "input_dbu": dbu,
-                              "fundamental_peak_volts": float(bins[1]),
+                              "fundamental_peak_volts": float(bins[1] / scale),
                               "thd_percent": float(np.linalg.norm(floor) * 100),
                               "k2_k20_dbc": (20 * np.log10(floor)).tolist()})
         z = -response_at(1000, ac, 5) / response_at(1000, ac, 7)
         report = {"gain_control_ohms": r, "input_shunt_ohms": shunt,
                        "input_impedance_1khz_ohms": [z.real, z.imag],
                        "amplifier_gain_1khz_db": float(20*np.log10(linear_gain / abs(response_at(1000, ac, 3)))),
-                       "full_circuit_gain_1khz_db": float(20*np.log10(linear_gain)),
+                       "full_circuit_gain_1khz_db": float(20*np.log10(linear_gain / scale)),
                        "max_analog_complex_fit_error": error, "bias_volts": bias,
                        "operating_points": bench}
     return entry, report

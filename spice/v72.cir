@@ -1,0 +1,67 @@
+Siemens V72 two-EF804S audio circuit - drawing S843, after serial 1000
+* The 1u primary series cap is retained. Heater and mains are represented
+* by a quiet B+ feed. Transformer parasitics and EF804S curves are estimated.
+.param FREQ=1000 DRIVE=1m RGC=4000 TERM=1 SOURCE=200 LOAD=300
+Vsig source 0 AC 1 SIN(0 {DRIVE} {FREQ})
+Rsource source mic {SOURCE}
+C30 mic pri 1u
+XCT1 pri 0 g1 0 COIL n=10 lp=30 rp=105 rs=1050 k=.999998 cw=80p
+Einput in 0 g1 0 1
+R11 g1 0 400k
+X41 a1 g1 s1 k1 EF804S
+R12 k1 0 1.25k
+R19 k1 k2 50k
+R20 k1 feedback {RGC}
+R18 feedback a2 80k
+C39 k1 a2 50p
+C40 k1 a2 2p
+R13 feed platefeed 50k
+R16 platefeed a1 200k
+R15 platefeed s1 800k
+C34 platefeed 0 8u
+R14 s1 0 800k
+C31 s1 0 50n
+C32 a1 g2 25n
+R21 g2 0 3Meg
+X42 a2 g2 s2 k2 EF804S
+R22 k2 0 500
+R23 s2 k2 200k
+R24 s2 feed 30k
+C35 feed 0 8u
+Rchoke feed choke 2.4k
+Lck choke a2 120
+Cchoke feed a2 95p
+C33 a2 outPri 2u
+XCT2 outPri 0 native 0 COIL n=.143 lp=160 rp=650 rs=35 k=.9999 cw=340p
+Rload native 0 {LOAD}
+Eout out 0 native 0 .8
+Vrect unregulated 0 300
+R26 unregulated supplyA 2.5k
+R27 supplyA supplyB 2.5k
+R25 supplyB feed 2k
+C36 unregulated 0 8u
+C37 supplyA 0 8u
+C38 supplyB 0 8u
+
+* Pentode current law around published EF804S nominal operating points.
+.subckt EF804S a g s k
+Bdrive drive 0 V={.19*log(1+exp(min(55,(V(g,k)+V(s,k)/34.9-.35)/.19)))}
+Bplate a k I={.00152*pow(max(V(drive),1e-8),1.44)*(2/3.14159265)*atan(max(V(a,k),0)/22)*(1+max(V(a,k),0)/4200)}
+Bscreen s k I={.00021*pow(max(V(drive),1e-8),1.44)}
+Dgrid g k GRID
+Rgrid g k 220Meg
+Cga g a .065p
+Cgk g k 3.5p
+Cak a k 4.0p
+.model GRID D(IS=1e-12 N=1.65)
+.ends EF804S
+
+.subckt COIL ip im op om params: n=2 lp=10 rp=20 rs=100 k=.9999 cw=100p
+Rprimary ip p {rp}
+Lprimary p im {lp}
+Lsecondary s om {lp*n*n}
+Kwind Lprimary Lsecondary {k}
+Rsecondary s op {rs}
+Cwind op om {cw}
+.ends COIL
+.end

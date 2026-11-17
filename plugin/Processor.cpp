@@ -1,6 +1,7 @@
 #include "Processor.h"
 #include "Editor.h"
 #include "MatchStimulus.h"
+#include "ExtraModels.h"
 #include <sstream>
 
 namespace {
@@ -25,7 +26,11 @@ TGProcessor::TGProcessor()
       parameters {tree.getRawParameterValue("coarse"), tree.getRawParameterValue("fine"),
                   tree.getRawParameterValue("output"), tree.getRawParameterValue("line"),
                   tree.getRawParameterValue("impedance"), tree.getRawParameterValue("phase"),
-                  tree.getRawParameterValue("match")}
+                  tree.getRawParameterValue("match"), tree.getRawParameterValue("amp"),
+                  tree.getRawParameterValue("gain1290"), tree.getRawParameterValue("low1290"),
+                  tree.getRawParameterValue("gain312"),
+                  tree.getRawParameterValue("pad312"), tree.getRawParameterValue("tap312"),
+                  tree.getRawParameterValue("driveV72")}
 {
 }
 
@@ -41,7 +46,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout TGProcessor::createLayout()
         std::make_unique<Bool>(ID{"line", 1}, "Line", false),
         std::make_unique<Bool>(ID{"impedance", 1}, "300 Ohm Position", false),
         std::make_unique<Bool>(ID{"phase", 1}, "Polarity", false),
-        std::make_unique<Bool>(ID{"match", 1}, "Match", false)
+        std::make_unique<Bool>(ID{"match", 1}, "Match", false),
+        std::make_unique<juce::AudioParameterChoice>(ID{"amp", 1}, "Preamp",
+            juce::StringArray { "TG Type D", "1290", "312", "V72" }, 0),
+        std::make_unique<Float>(ID{"gain1290", 1}, "1290 Gain", juce::NormalisableRange<float>(20, 80, 5), 35),
+        std::make_unique<Bool>(ID{"low1290", 1}, "1290 Low Impedance", false),
+        std::make_unique<Float>(ID{"gain312", 1}, "312 Gain", juce::NormalisableRange<float>(34, 69, .1f), 34),
+        std::make_unique<Bool>(ID{"pad312", 1}, "312 Pad", false),
+        std::make_unique<Bool>(ID{"tap312", 1}, "312 1:1 Output Tap", false),
+        std::make_unique<Float>(ID{"driveV72", 1}, "V72 Drive", juce::NormalisableRange<float>(-15, 15, .1f), 0)
     };
 }
 
@@ -64,6 +77,14 @@ void TGProcessor::prepareToPlay(double sampleRate, int maximumBlockSize)
     const auto fastRate = sampleRate * static_cast<double>(oversampling->getOversamplingFactor());
     for (auto& stage : stages)
         stage.prepare(fastRate);
+    for (auto& amp : neve)
+        amp.prepare(fastRate, tg::extraModels);
+    for (auto& amp : api)
+        amp.prepare(fastRate, tg::extraModels + 6);
+    for (auto& amp : v72)
+        amp.prepare(fastRate, tg::extraModels + 12);
+    lastMode = 0;
+    levelMeter.store(0.0f);
     for (auto& channel : correction)
         channel.reset();
     const auto factor = static_cast<int>(oversampling->getOversamplingFactor());
@@ -118,16 +139,59 @@ void TGProcessor::processSlice(juce::dsp::AudioBlock<float> block)
     const auto line = *parameters.line > 0.5f;
     const auto match = !line && *parameters.match > 0.5f && activeProfile.usable(sessionRate.load());
     const auto fine = parameters.fine->load();
-    const auto position = 2.0f + fine / 5.0f;
-    const auto impedance = line ? 0.0f : parameters.impedance->load();
+    auto position = 2.0f + fine / 5.0f;
+    const int mode = juce::roundToInt(parameters.amp->load());
+    const auto impedance = mode == 2 ? parameters.tap312->load()
+                                      : line ? 0.0f
+                                             : (mode == 1 ? parameters.low1290 : parameters.impedance)->load();
     const auto inputZero = line ? tg::nominalDigitalZeroDbu
                                 : (match ? static_cast<double>(activeProfile.zeroDbu) : tg::nominalMicZeroDbu);
-    const auto gain = tg::linear(*parameters.coarse + fine - (line ? 20.0f : 0.0f));
+    float gainDb = *parameters.coarse + fine;
+    float linePad = 20.0f, internalScale = 1.0f;
+    if (mode == 1)
+    {
+        const auto coarse = parameters.gain1290->load();
+        position = 2.0f * (coarse - 20.0f) / 60.0f;
+        gainDb = coarse + fine;
+        internalScale = .4f;
+    }
+    else if (mode == 2)
+    {
+        const auto coarse = parameters.gain312->load();
+        position = 2.0f * (coarse - 34.0f) / 35.0f;
+        gainDb = coarse - 9.542425f * impedance - 20.0f * parameters.pad312->load();
+        linePad = 34.0f;
+        internalScale = .35f;
+    }
+    else if (mode == 3)
+    {
+        position = 0.0f;
+        gainDb = 34.0f + parameters.driveV72->load();
+        linePad = 34.0f;
+        internalScale = .8f;
+    }
+    auto modelGain = [&]
+    {
+        switch (mode)
+        {
+            case 1: return neve[0].naturalGain(position, impedance);
+            case 2: return api[0].naturalGain(position, impedance);
+            case 3: return v72[0].naturalGain(position, impedance);
+            default: return stages[0].naturalGain(position, impedance);
+        }
+    }();
+    const auto gain = tg::linear(gainDb - (line ? linePad : 0.0f));
+    if (mode != lastMode)
+    {
+        finePosition.setCurrentAndTargetValue(position);
+        inputGain.setCurrentAndTargetValue(0.0f);
+        lastMode = mode;
+    }
     const auto polarity = *parameters.phase > 0.5f ? -1.0f : 1.0f;
     // Panel gain is normalized at 1 kHz. The resistor-dependent transfer and
     // distortion still follow the two nearest physical reference settings.
     inputGain.setTargetValue(polarity * peakVolts(static_cast<float>(inputZero))
-                             * gain / tg::TypeD::naturalGain(position, impedance));
+                             * gain * internalScale / modelGain);
     sourceBlend.setTargetValue(match ? 1.0f : 0.0f);
     finePosition.setTargetValue(position);
     impedanceBlend.setTargetValue(impedance);
@@ -151,11 +215,22 @@ void TGProcessor::processSlice(juce::dsp::AudioBlock<float> block)
     {
         const auto fineMix = finePosition.getNextValue();
         const auto inputZ = impedanceBlend.getNextValue();
-        const auto level = outputGain.getNextValue() / fsVolts;
+        const auto level = outputGain.getNextValue() / (fsVolts * internalScale);
         for (size_t channel = 0; channel < fast.getNumChannels(); ++channel)
         {
             auto* samples = fast.getChannelPointer(channel);
-            auto value = stages[channel].process(samples[sample], fineMix, inputZ) * level;
+            const auto input = samples[sample];
+            const auto ampOutput = [&]
+            {
+                switch (mode)
+                {
+                    case 1: return neve[channel].process(input, fineMix, inputZ);
+                    case 2: return api[channel].process(input, fineMix, inputZ);
+                    case 3: return v72[channel].process(input, fineMix, inputZ);
+                    default: return stages[channel].process(input, fineMix, inputZ);
+                }
+            }();
+            auto value = ampOutput * level;
             if (fastDelayLength > 0)
                 std::swap(value, oversamplingPad[channel][static_cast<size_t>(fastDelayOffset)]);
             samples[sample] = value;
@@ -164,6 +239,16 @@ void TGProcessor::processSlice(juce::dsp::AudioBlock<float> block)
             fastDelayOffset = 0;
     }
     oversampling->processSamplesDown(block);
+    float peak = 0.0f;
+    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+    {
+        const auto limits = juce::FloatVectorOperations::findMinAndMax(
+            block.getChannelPointer(channel), static_cast<int>(block.getNumSamples()));
+        peak = std::max(peak, std::max(std::abs(limits.getStart()), std::abs(limits.getEnd())));
+    }
+    const auto decay = static_cast<float>(std::exp(-static_cast<double>(block.getNumSamples())
+                                                   / (sessionRate.load() * .3)));
+    levelMeter.store(std::max(peak, levelMeter.load() * decay));
 }
 
 void TGProcessor::trackDry(juce::dsp::AudioBlock<float> block, bool writeDelayed)

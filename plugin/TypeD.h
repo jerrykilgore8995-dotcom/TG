@@ -133,14 +133,16 @@ inline float stageShape(const Model& model, float value)
                       + t * (2.0f * (v0 - v1) + m0 + m1)));
 }
 
-class TypeD
+template<int Steps, int Banks = 2>
+class FittedStage
 {
 public:
-    void prepare(double rate)
+    void prepare(double rate, const Model* table = models)
     {
+        profileModels = table;
         for (size_t i = 0; i < filters.size(); ++i)
             for (size_t section = 0; section < filters[i].size(); ++section)
-                filters[i][section].prepare(models[i].sos[section], rate);
+                filters[i][section].prepare(profileModels[i].sos[section], rate);
         dcPole = static_cast<float>(std::exp(-2.0 * std::numbers::pi * 0.35 / rate));
         derivativeScale = static_cast<float>(rate / (2.0 * std::numbers::pi * 1000.0));
         previousLinear.fill(0.0f);
@@ -149,9 +151,9 @@ public:
 
     float process(float input, float finePosition, float impedance)
     {
-        auto base = std::min(static_cast<int>(finePosition), 3);
+        auto base = std::clamp(static_cast<int>(finePosition), 0, std::max(0, Steps - 2));
         auto blend = finePosition - static_cast<float>(base);
-        std::array<float, 10> outputs {};
+        std::array<float, Steps * Banks> outputs {};
         for (size_t i = 0; i < filters.size(); ++i)
         {
             auto value = input;
@@ -159,7 +161,7 @@ public:
                 value = filter.process(value);
             const auto derivative = (value - previousLinear[i]) * derivativeScale;
             previousLinear[i] = value;
-            const auto& shape = models[i];
+            const auto& shape = profileModels[i];
             const auto quadratic = value * (shape.quadratic[0] * value + shape.quadratic[1] * derivative);
             const auto headroom = std::clamp((6.0f - std::abs(value)) * .25f, 0.0f, 1.0f);
             outputs[i] = stageShape(shape, value) + headroom * quadratic;
@@ -169,35 +171,41 @@ public:
         {
             auto first = offset + base;
             auto lo = outputs[static_cast<size_t>(first)];
-            auto hi = outputs[static_cast<size_t>(first + 1)];
+            auto hi = outputs[static_cast<size_t>(first + (Steps > 1))];
             return lo + (hi - lo) * blend;
         };
 
         const auto unloaded = channel(0);
-        const auto loaded = channel(5);
-        const auto shaped = unloaded + (loaded - unloaded) * impedance;
+        auto shaped = unloaded;
+        if constexpr (Banks > 1)
+            shaped += (channel(Steps) - unloaded) * impedance;
         const auto filtered = shaped - previousInput + dcPole * previousOutput;
         previousInput = shaped;
         previousOutput = filtered;
         return filtered;
     }
 
-    static float naturalGain(float finePosition, float impedance)
+    float naturalGain(float finePosition, float impedance) const
     {
-        auto base = std::min(static_cast<int>(finePosition), 3);
+        auto base = std::clamp(static_cast<int>(finePosition), 0, std::max(0, Steps - 2));
         auto frac = finePosition - static_cast<float>(base);
         const auto gain = [&](int offset)
         {
             const int i = base + offset;
-            return models[i].gain + (models[i + 1].gain - models[i].gain) * frac;
+            return profileModels[i].gain + (profileModels[i + (Steps > 1)].gain - profileModels[i].gain) * frac;
         };
-        return gain(0) + (gain(5) - gain(0)) * impedance;
+        if constexpr (Banks > 1)
+            return gain(0) + (gain(Steps) - gain(0)) * impedance;
+        return gain(0);
     }
 
 private:
-    std::array<std::array<Biquad, 4>, 10> filters {};
-    std::array<float, 10> previousLinear {};
+    const Model* profileModels = models;
+    std::array<std::array<Biquad, 4>, Steps * Banks> filters {};
+    std::array<float, Steps * Banks> previousLinear {};
     float previousInput {}, previousOutput {}, dcPole {}, derivativeScale {};
 };
+
+using TypeD = FittedStage<5>;
 
 }

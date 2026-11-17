@@ -33,6 +33,9 @@ private:
     void timerCallback() override;
     void chooseMatch();
     void showMatchSettings();
+    void showPreampMenu();
+    void refreshPanel(int selection);
+    void paintAlternate(juce::Graphics&);
     void showTestOutput();
     void exportTestWav(int rate, float attenuation);
     void setMatch(bool);
@@ -40,12 +43,13 @@ private:
     TGProcessor& owner;
     FaceLook face;
     juce::Slider coarse, fine, output;
-    juce::TextButton line, impedance, phantom, phase;
+    juce::TextButton line, impedance, phantom, phase, pad312, modeSelect;
+    int mode = -1;
     MatchButton match {"Match"};
     juce::TooltipWindow tooltips;
     std::unique_ptr<juce::FileChooser> chooser;
     using SliderLink = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonLink = juce::AudioProcessorValueTreeState::ButtonAttachment;
     std::unique_ptr<SliderLink> coarseLink, fineLink, outputLink;
-    std::unique_ptr<ButtonLink> lineLink, impedanceLink, phaseLink;
+    std::unique_ptr<ButtonLink> lineLink, impedanceLink, phaseLink, padLink;
 };
