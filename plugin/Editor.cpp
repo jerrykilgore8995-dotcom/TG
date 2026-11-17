@@ -296,7 +296,7 @@ void TGEditor::FaceLook::drawButtonBackground(juce::Graphics& g, juce::Button& b
     {
         g.setColour(juce::Colour(0xff101010));
         g.fillRect(bounds.translated(0, 2));
-        auto fill = active ? juce::Colour(0xffd3c762) : (id == "match" ? juce::Colour(0xff424142) : white);
+        auto fill = active ? juce::Colour(0xffd3c762) : ((id == "match" || id == "select") ? juce::Colour(0xff424142) : white);
         if (hover) fill = fill.brighter(.12f);
         if (down) fill = fill.darker(.24f);
         g.setGradientFill(juce::ColourGradient(fill, 0, 0, fill.darker(.26f),
@@ -379,8 +379,8 @@ void TGEditor::chooseMatch()
 void TGEditor::showMatchSettings()
 {
     juce::PopupMenu menu;
-    menu.addItem(1, "Test output attenuation…");
-    menu.addItem(2, "Load Match profile…");
+    menu.addItem(1, "Test output attenuation...");
+    menu.addItem(2, "Load Match profile...");
     auto safe = juce::Component::SafePointer<TGEditor>(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&match), [safe](int choice)
     {
@@ -397,7 +397,7 @@ void TGEditor::showTestOutput()
 {
     auto* dialog = new juce::AlertWindow("UMC1820 Test Output",
         "The UMC1820 line output is rated +16 dBu at full scale.\n"
-        "The 50 dB default puts the hottest test tone near −40 dBu.\n"
+        "The 50 dB default puts the hottest test tone near -40 dBu.\n"
         "Set a pad from 20 to 80 dB. Use a balanced cable and turn phantom power off.",
         juce::MessageBoxIconType::NoIcon);
     dialog->addTextEditor("pad", juce::String(owner.testAttenuation(), 1), "Attenuation (dB)");
@@ -412,7 +412,7 @@ void TGEditor::showTestOutput()
     }
     dialog->addComboBox("rate", rates, "Sample Rate");
     dialog->getComboBoxComponent("rate")->setSelectedItemIndex(selectedRate);
-    dialog->addButton("Export WAV…", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog->addButton("Export WAV...", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialog->addButton("Close", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     auto safe = juce::Component::SafePointer<TGEditor>(this);
     dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog](int result)
@@ -537,7 +537,7 @@ void TGEditor::paintAlternate(juce::Graphics& g)
         });
         label(g, "INPUT GAIN", 102, 233, 112, 16, 12, ink);
         label(g, "LO Z", 24, 297, 42, 16, 11, ink);
-        label(g, "Ø", 24, 341, 42, 16, 12, ink);
+        label(g, "POL", 24, 341, 42, 16, 12, ink);
         label(g, "LINE", 24, 383, 42, 16, 11, ink);
         label(g, "48V", 23, 425, 41, 16, 11, ink);
         label(g, "TRIM", 146, 304, 80, 16, 11, ink);
@@ -564,7 +564,7 @@ void TGEditor::paintAlternate(juce::Graphics& g)
             g.drawLine(origin.x + std::sin(angle) * 67, origin.y - std::cos(angle) * 67,
                        origin.x + std::sin(angle) * 73, origin.y - std::cos(angle) * 73, 1);
         }
-        label(g, "−20      −7     0   +3", 103, 116, 134, 15, 9, juce::Colour(0xff322418));
+        label(g, "-20     -7     0  +3", 103, 116, 134, 15, 9, juce::Colour(0xff322418));
         label(g, "VU", 102, 156, 60, 18, 10, juce::Colour(0xff322418));
         const auto db = juce::Decibels::gainToDecibels(level) + 18.0f;
         const auto fraction = std::clamp((db + 20.0f) / 23.0f, 0.0f, 1.0f);
@@ -583,7 +583,7 @@ void TGEditor::paintAlternate(juce::Graphics& g)
         label(g, "PEAK", 31, 263, 34, 13, 9, white);
         dial(g, 102, 342, pi * .78f, 9, 47, blue, [](int) { return juce::String(); });
         label(g, "GAIN", 159, 335, 45, 16, 11, white);
-        label(g, "PAD −20", 139, 430, 62, 16, 11, white);
+        label(g, "PAD -20", 139, 430, 62, 16, 11, white);
         label(g, "POL", 133, 471, 56, 16, 11, white);
         label(g, "3:1", 133, 512, 56, 16, 11, white);
         label(g, "48V", 133, 553, 56, 16, 11, white);
@@ -601,13 +601,13 @@ void TGEditor::paintAlternate(juce::Graphics& g)
     g.fillEllipse(95, 220, 14, 14);
     dial(g, 102, 338, pi * .78f, 7, 52, steel.brighter(.5f), [](int i)
     {
-        if (i == 0) return juce::String("−15");
+        if (i == 0) return juce::String("-15");
         if (i == 3) return juce::String("0");
         if (i == 6) return juce::String("+15");
         return juce::String();
     });
     label(g, "DRIVE", 102, 406, 98, 19, 14, white);
     label(g, "OUTPUT", 102, 548, 98, 19, 14, white);
-    label(g, "Ø", 64, 563, 64, 18, 11, white);
+    label(g, "POL", 64, 563, 64, 18, 11, white);
     label(g, "LINE", 137, 563, 64, 18, 11, white);
 }
