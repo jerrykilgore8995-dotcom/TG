@@ -3,6 +3,10 @@ on:
   push:
   workflow_dispatch:
 
+concurrency:
+  group: tg-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

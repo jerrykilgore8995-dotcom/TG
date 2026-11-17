@@ -16,7 +16,8 @@ void label(juce::Graphics& g, juce::String text, float x, float y, float width,
 {
     g.setFont(panelFont(size));
     g.setColour(ink);
-    g.drawText(text, {x - width * .5f, y, width, height}, juce::Justification::centred);
+    g.drawText(text, juce::Rectangle<float>(x - width * .5f, y, width, height),
+               juce::Justification::centred);
 }
 
 void screw(juce::Graphics& g, float x, float y, float radius)

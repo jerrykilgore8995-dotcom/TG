@@ -59,7 +59,8 @@ public:
         // Mirrored storage keeps the FIR contiguous across a ring rollover.
         if (--head < 0)
             head = matchTaps - 1;
-        samples[head] = samples[head + matchTaps] = input;
+        const auto index = static_cast<size_t>(head);
+        samples[index] = samples[index + matchTaps] = input;
         const float* delayed = samples.data() + head;
         float dry = delayed[matchDelay];
         if (mix <= 0.0f)

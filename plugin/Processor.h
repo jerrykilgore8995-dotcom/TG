@@ -10,6 +10,8 @@ public:
     TGProcessor();
     void prepareToPlay(double sampleRate, int maximumBlockSize) override;
     void releaseResources() override;
+    using juce::AudioProcessor::processBlock;
+    using juce::AudioProcessor::processBlockBypassed;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     bool isBusesLayoutSupported(const BusesLayout&) const override;
