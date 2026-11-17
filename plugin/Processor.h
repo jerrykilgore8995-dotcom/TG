@@ -33,6 +33,9 @@ public:
     juce::String loadMatch(const juce::File&);
     bool hasMatch() const;
     bool matchAtSessionRate() const;
+    float testAttenuation() const { return testPad.load(); }
+    void setTestAttenuation(float decibels);
+    double activeSampleRate() const { return sessionRate.load(); }
     juce::AudioProcessorValueTreeState tree;
 
 private:
@@ -58,6 +61,7 @@ private:
     std::atomic<unsigned int> profileVersion {1};
     unsigned int audioProfileVersion = 0;
     std::atomic<double> sessionRate {0.0};
+    std::atomic<float> testPad {50.0f};
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampling;
     std::array<tg::TypeD, 2> stages;
     std::array<tg::SourceCorrection, 2> correction;

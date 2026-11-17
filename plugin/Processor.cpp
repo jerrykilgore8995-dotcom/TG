@@ -1,5 +1,6 @@
 #include "Processor.h"
 #include "Editor.h"
+#include "MatchStimulus.h"
 #include <sstream>
 
 namespace {
@@ -14,6 +15,7 @@ float peakVolts(float dbu)
 constexpr char profileKey[] = "matchCoefficients";
 constexpr char rateKey[] = "matchRate";
 constexpr char zeroKey[] = "matchZeroDbu";
+constexpr char testPadKey[] = "matchTestPadDb";
 }
 
 TGProcessor::TGProcessor()
@@ -247,9 +249,16 @@ juce::String TGProcessor::loadMatch(const juce::File& file)
     return {};
 }
 
+void TGProcessor::setTestAttenuation(float decibels)
+{
+    testPad.store(std::isfinite(decibels) ? std::clamp(decibels, tg::minTestPadDb, tg::maxTestPadDb)
+                                          : tg::defaultTestPadDb);
+}
+
 void TGProcessor::getStateInformation(juce::MemoryBlock& data)
 {
     auto state = tree.copyState();
+    state.setProperty(testPadKey, testAttenuation(), nullptr);
     const juce::SpinLock::ScopedLockType lock(profileLock);
     if (savedProfile.valid())
     {
@@ -278,6 +287,8 @@ void TGProcessor::setStateInformation(const void* data, int size)
         profile.zeroDbu = static_cast<float>(state.getProperty(zeroKey));
         memory->copyTo(profile.kernel.data(), 0, sizeof(profile.kernel));
     }
+    setTestAttenuation(static_cast<float>(state.getProperty(testPadKey, tg::defaultTestPadDb)));
+    state.removeProperty(testPadKey, nullptr);
     state.removeProperty(profileKey, nullptr);
     state.removeProperty(rateKey, nullptr);
     state.removeProperty(zeroKey, nullptr);

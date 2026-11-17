@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "MatchStimulus.h"
 #include <numbers>
 
 namespace {
@@ -95,10 +96,11 @@ TGEditor::TGEditor(TGProcessor& p)
     phaseLink = std::make_unique<ButtonLink>(p.tree, "phase", phase);
     match.setComponentID("match");
     match.onImport = [this] { chooseMatch(); };
+    match.onSettings = [this] { showMatchSettings(); };
     match.onClick = [this]
     {
         if (!owner.hasMatch() || !owner.matchAtSessionRate())
-            chooseMatch();
+            showMatchSettings();
         else
             setMatch(owner.tree.getRawParameterValue("match")->load() < 0.5f);
     };
@@ -254,7 +256,12 @@ void TGEditor::FaceLook::drawButtonText(juce::Graphics& g, juce::TextButton& but
 
 void TGEditor::MatchButton::mouseDown(const juce::MouseEvent& event)
 {
-    if (event.mods.isPopupMenu() || event.mods.isShiftDown())
+    if (event.mods.isPopupMenu())
+    {
+        if (onSettings) onSettings();
+        return;
+    }
+    if (event.mods.isShiftDown())
     {
         if (onImport) onImport();
         return;
@@ -268,8 +275,8 @@ void TGEditor::timerCallback()
     const auto isMic = owner.tree.getRawParameterValue("line")->load() < 0.5f;
     const auto enabled = owner.tree.getRawParameterValue("match")->load() > 0.5f;
     match.setToggleState(valid && isMic && enabled, juce::dontSendNotification);
-    match.setTooltip(valid ? "Enable UMC1820 correction in Mic mode. Shift-click to replace the profile."
-                           : "Import a UMC1820 input.tgmatch profile for this sample rate.");
+    match.setTooltip(valid ? "Toggle UMC1820 correction. Right-click for Match settings."
+                           : "Open Match settings to export a test WAV or load an input profile.");
 }
 
 void TGEditor::setMatch(bool enabled)
@@ -302,5 +309,84 @@ void TGEditor::chooseMatch()
             else
                 juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
                                                       "Match profile", problem);
+        });
+}
+
+void TGEditor::showMatchSettings()
+{
+    juce::PopupMenu menu;
+    menu.addItem(1, "Test output attenuation…");
+    menu.addItem(2, "Load Match profile…");
+    auto safe = juce::Component::SafePointer<TGEditor>(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&match), [safe](int choice)
+    {
+        if (safe == nullptr)
+            return;
+        if (choice == 1)
+            safe->showTestOutput();
+        if (choice == 2)
+            safe->chooseMatch();
+    });
+}
+
+void TGEditor::showTestOutput()
+{
+    auto* dialog = new juce::AlertWindow("UMC1820 Test Output",
+        "The UMC1820 line output is rated +16 dBu at full scale.\n"
+        "The 50 dB default puts the hottest test tone near −40 dBu.\n"
+        "Set a pad from 20 to 80 dB. Use a balanced cable and turn phantom power off.",
+        juce::MessageBoxIconType::NoIcon);
+    dialog->addTextEditor("pad", juce::String(owner.testAttenuation(), 1), "Attenuation (dB)");
+    dialog->getTextEditor("pad")->setInputRestrictions(5, "0123456789.");
+    juce::StringArray rates;
+    int selectedRate = 0;
+    for (int rate : tg::testRates)
+    {
+        if (std::abs(owner.activeSampleRate() - rate) < 0.5)
+            selectedRate = rates.size();
+        rates.add(juce::String(rate) + " Hz");
+    }
+    dialog->addComboBox("rate", rates, "Sample Rate");
+    dialog->getComboBoxComponent("rate")->setSelectedItemIndex(selectedRate);
+    dialog->addButton("Export WAV…", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    dialog->addButton("Close", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    auto safe = juce::Component::SafePointer<TGEditor>(this);
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create([safe, dialog](int result)
+    {
+        if (safe == nullptr || result != 1)
+            return;
+        const auto pad = dialog->getTextEditorContents("pad").getFloatValue();
+        if (pad < tg::minTestPadDb || pad > tg::maxTestPadDb)
+        {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                  "Test attenuation", "Enter a value from 20 to 80 dB.");
+            return;
+        }
+        const int rateIndex = dialog->getComboBoxComponent("rate")->getSelectedItemIndex();
+        const auto rate = tg::testRates[std::max(0, rateIndex)];
+        safe->owner.setTestAttenuation(pad);
+        safe->exportTestWav(rate, pad);
+    }), true);
+}
+
+void TGEditor::exportTestWav(int rate, float attenuation)
+{
+    if (chooser != nullptr)
+        return;
+    auto file = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile("UMC1820-match-test.wav");
+    chooser = std::make_unique<juce::FileChooser>("Export UMC1820 Match test", file, "*.wav");
+    auto safe = juce::Component::SafePointer<TGEditor>(this);
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                         | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safe, rate, attenuation](const juce::FileChooser& selected)
+        {
+            if (safe == nullptr)
+                return;
+            const auto result = selected.getResult();
+            safe->chooser.reset();
+            if (result != juce::File() && !tg::writeMatchStimulus(result.withFileExtension("wav"), rate, attenuation))
+                juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                                                      "Test export", "The test WAV could not be saved.");
         });
 }

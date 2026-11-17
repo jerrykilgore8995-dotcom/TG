@@ -26,12 +26,15 @@ private:
     {
     public:
         using juce::TextButton::TextButton;
-        std::function<void()> onImport;
+        std::function<void()> onImport, onSettings;
         void mouseDown(const juce::MouseEvent&) override;
     };
 
     void timerCallback() override;
     void chooseMatch();
+    void showMatchSettings();
+    void showTestOutput();
+    void exportTestWav(int rate, float attenuation);
     void setMatch(bool);
 
     TGProcessor& owner;

@@ -12,6 +12,9 @@ TEST_FREQUENCIES = (100, 1000, 5000, 10000)
 TEST_LEVELS = (-36, -24, -12, -6)
 DELAY = 128
 TAPS = 513
+DEFAULT_ATTENUATION_DB = 50.0
+PUBLIC_LINE_OUTPUT_DBU = 16.0
+SUPPORTED_RATES = (44100, 48000, 88200, 96000)
 
 
 def db(value):
@@ -43,10 +46,15 @@ def stimulus(rate):
     return np.concatenate(chunks), sync, start, tone_start, end
 
 
-def capture_audio(path):
+def capture_audio(path, channels):
     rate, audio = wavfile.read(path)
-    if audio.ndim != 2 or audio.shape[1] != 2:
-        raise ValueError("Export exactly two synchronous channels: reference left, DUT right.")
+    if rate not in SUPPORTED_RATES:
+        raise ValueError("Use 44.1, 48, 88.2 or 96 kHz.")
+    if channels == 1 and audio.ndim == 1:
+        audio = audio[:, np.newaxis]
+    if audio.ndim != 2 or audio.shape[1] != channels:
+        hint = "mono" if channels == 1 else "stereo (reference left, DUT right)"
+        raise ValueError(f"Export a {hint} WAV.")
     if np.issubdtype(audio.dtype, np.signedinteger):
         audio = audio.astype(float) / (np.iinfo(audio.dtype).max + 1)
     elif np.issubdtype(audio.dtype, np.floating):
@@ -114,8 +122,8 @@ def correction(freq, transfer, coherence, rate):
     }
 
 
-def analyse(path, output, reference_dbfs, reference_dbu, input_label):
-    rate, audio = capture_audio(path)
+def measure_audio(rate, audio, output, reference_dbfs, reference_dbu, input_label,
+                  reference_method):
     _, sync, start, tone_start, end_sync = stimulus(rate)
     shift = find_sync(audio[:, 0], sync, end_sync - rate) - rate
     if shift + start < 0 or shift + end_sync > len(audio):
@@ -168,10 +176,40 @@ def analyse(path, output, reference_dbfs, reference_dbu, input_label):
     with (output / "input.tgmatch").open("w") as stream:
         stream.write(f"TG_MATCH_V1 {rate} {len(taps)} {DELAY} {digital_zero_dbu:.9g}\n")
         stream.writelines(f"{value:.10g}\n" for value in taps)
-    report = {"sample_rate": rate, "input": input_label,
+    report = {"sample_rate": rate, "input": input_label, "reference_method": reference_method,
               "mic_dbu_at_dut_0_dbfs_peak": digital_zero_dbu, **fit}
     (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
+
+
+def analyse(path, output, reference_dbfs, reference_dbu, input_label):
+    rate, audio = capture_audio(path, channels=2)
+    measure_audio(rate, audio, output, reference_dbfs, reference_dbu, input_label,
+                  "synchronous analogue reference")
+
+
+def analyse_direct(playback_wav, capture_wav, output, line_output_dbu, input_label):
+    rate, stimulus_audio = capture_audio(playback_wav, channels=1)
+    captured_rate, capture = capture_audio(capture_wav, channels=1)
+    if captured_rate != rate:
+        raise ValueError("Test and captured WAVs must have the same sample rate.")
+    _, sync, _, _, last_marker = stimulus(rate)
+    distance = last_marker - rate
+    playback_start = find_sync(stimulus_audio[:, 0], sync, distance)
+    return_start = find_sync(capture[:, 0], sync, distance)
+    length = min(len(stimulus_audio) - playback_start, len(capture) - return_start)
+    aligned = np.column_stack((stimulus_audio[playback_start:playback_start + length, 0],
+                               capture[return_start:return_start + length, 0]))
+    aligned = np.pad(aligned, ((rate, 0), (0, 0)))
+    measure_audio(rate, aligned, output, 0.0, line_output_dbu, input_label,
+                  "digital stimulus and loopback return; line output dBu is an estimate unless measured")
+
+
+def attenuation(value):
+    result = float(value)
+    if not np.isfinite(result) or not 20 <= result <= 80:
+        raise argparse.ArgumentTypeError("Attenuation must be between 20 and 80 dB.")
+    return result
 
 
 def main():
@@ -179,19 +217,31 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     generate = commands.add_parser("generate")
     generate.add_argument("wav", type=Path)
-    generate.add_argument("--rate", type=int, choices=(44100, 48000, 88200, 96000), default=44100)
+    generate.add_argument("--rate", type=int, choices=SUPPORTED_RATES, default=44100)
+    generate.add_argument("--attenuation-db", type=attenuation, default=DEFAULT_ATTENUATION_DB)
     measure = commands.add_parser("measure")
     measure.add_argument("wav", type=Path)
     measure.add_argument("output", type=Path)
     measure.add_argument("--reference-dbfs-peak", type=float, required=True)
     measure.add_argument("--reference-dbu", type=float, required=True)
     measure.add_argument("--input-label", required=True)
+    direct = commands.add_parser("measure-direct", help="Measure with the test WAV and mono loopback return.")
+    direct.add_argument("stimulus", type=Path)
+    direct.add_argument("wav", type=Path)
+    direct.add_argument("output", type=Path)
+    direct.add_argument("--line-output-dbu", type=float, default=PUBLIC_LINE_OUTPUT_DBU)
+    direct.add_argument("--input-label", required=True)
     args = parser.parse_args()
     if args.command == "generate":
         audio, *_ = stimulus(args.rate)
-        wavfile.write(args.wav, args.rate, audio.astype(np.float32))
+        wavfile.write(args.wav, args.rate, (audio * 10 ** (-args.attenuation_db / 20)).astype(np.float32))
         return
     try:
+        if args.command == "measure-direct":
+            if not np.isfinite(args.line_output_dbu):
+                raise ValueError("Line output calibration must be finite.")
+            analyse_direct(args.stimulus, args.wav, args.output, args.line_output_dbu, args.input_label)
+            return
         if not np.isfinite([args.reference_dbfs_peak, args.reference_dbu]).all():
             raise ValueError("Reference calibration must be finite.")
         analyse(args.wav, args.output, args.reference_dbfs_peak, args.reference_dbu, args.input_label)

@@ -21,19 +21,32 @@ Sources
 
 ## Capture a UMC1820 input at 44.1 kHz
 
-The tool generates a test WAV and extracts complex response, absolute input-level calibration, THD and available K2–K20 from a two-channel raw recording. Use an analyzer or calibrated low-distortion, high-impedance differential sense path to record the voltage at the DUT input alongside the DUT. A single DUT-only loopback includes the DAC and pad and gives no way to distinguish their errors from the UMC1820.
+**Direct connection.** In the plugin, right-click **Match** and choose **Test output attenuation**. Export the test WAV at your DAW rate. The pad is adjustable from 20 to 80 dB and defaults to 50 dB. With the UMC1820’s published +16 dBu maximum and the test’s −6 dBFS peak tone, the loudest tone is nominally −40 dBu. The default test spans approximately −70 to −40 dBu at the preamp input.
 
-1. Route the test WAV to an unused line output. Feed it to the UMC1820 mic input through a balanced mic-level test pad. Turn phantom off for that bank, disconnect microphones and disable hardware and DAW monitoring on the return channels. Begin with output level down. Check the loudest tone stays clear of ADC clipping.
-2. Record the calibrated input reference on the left and the UMC1820 mic channel on the right. Use a shared audio clock, preserve both sync markers and export a stereo WAV without gain changes, processing, resampling or time stretching.
-3. With the same reference-channel gain, record a steady sine and independently measure its dBu at the DUT pins. Enter the recorded sample peak in dBFS and the measured dBu in the command below. The examples are placeholders for these two measured numbers. Preserve the UMC1820 gain, PAD state, sample rate and physical XLR channel for recordings using that profile.
+1. Switch phantom power **off** for the input bank and disconnect the microphone. Connect a spare fixed-level UMC1820 line output to the chosen mic input using a balanced TRS-to-XLR cable. Disable DAW monitoring, direct monitoring and any return-to-send routing.
+2. Play the mono export at unity gain directly through that output, with no pan-law attenuation and record the mic input dry. Keep the gain and PAD positions you intend to use when tracking. Confirm the loudest test tone clears clipping. If the capture has insufficient signal, export with less attenuation and repeat. Use more attenuation if the return clips.
+3. Export the raw mono return. Keep both sync markers and use the same sample rate for playback and record. Use the exact WAV you played:
 
 ```powershell
 py -m pip install -r calibration/requirements.txt
-py calibration/tg_capture.py generate umc-test.wav --rate 44100
-py calibration/tg_capture.py measure umc-return.wav capture --reference-dbfs-peak -20 --reference-dbu -60 --input-label "UMC1820 XLR 1"
+py calibration/tg_capture.py measure-direct UMC1820-match-test.wav umc-return.wav capture --input-label "UMC1820 XLR 1"
 ```
 
-Use Mic mode and click **Match** to import `capture/input.tgmatch`. Once imported, click Match to toggle correction or Shift-click to replace the profile. The instance stores the profile in the DAW project. Profile correction inverts the coherent UMC1820 response within a bounded range, then calibrates the input level driving the Type D model. The reported THD and harmonic measurements describe the captured chain and reference. The processor applies linear correction and cannot undo converter clipping, input noise, nonlinear distortion or a microphone’s interaction with the UMC1820’s physical XLR load. The 48V position is visual only. Control actual phantom at the interface.
+The same attenuated test can be generated without opening the plugin:
+
+```powershell
+py calibration/tg_capture.py generate UMC1820-match-test.wav --rate 44100 --attenuation-db 50
+```
+
+The direct measurement uses the published +16 dBu maximum as its level reference. Use `--line-output-dbu` with the actual full-scale sine-equivalent output level if you have measured it for the same cable and load. Direct capture measures the playback DAC, cable and preamp/ADC together. Digital attenuation lowers the waveform before the DAC, so excess noise or a load-dependent response can limit precision.
+
+**Analog reference.** For absolute input calibration and measured mic-pin voltage, record a synchronous calibrated sense path on the left and DUT on the right. Measure the analog reference level at the input using a steady sine. Supply the observed reference peak and measured dBu to the stereo measurement command. Keep the reference gain unchanged.
+
+```powershell
+py calibration/tg_capture.py measure umc-return-stereo.wav capture --reference-dbfs-peak -20 --reference-dbu -60 --input-label "UMC1820 XLR 1"
+```
+
+Use Mic mode and select **Load Match profile** from the Match menu to import `capture/input.tgmatch`. Click Match to toggle correction. The plugin stores the attenuation setting and profile in the DAW project. Match corrects the coherent measured frequency/phase response within bounded gain and calibrates the input level driving the Type D model. THD and harmonics are reported for inspection. Converter clipping, preamp noise and microphone interaction with the physical XLR load occur before the plugin. Control real phantom at the interface.
 
 ## Build
 
